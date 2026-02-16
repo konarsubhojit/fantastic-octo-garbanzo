@@ -7,9 +7,8 @@ import { auth } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/api-utils';
 import { withLogging } from '@/lib/api-middleware';
 import { logBusinessEvent, logError } from '@/lib/logger';
-import { publishEvent } from '@/services/shared/producer';
-import { TOPICS } from '@/services/shared/kafka';
-import type { PaymentSuccessEvent } from '@/services/shared/types';
+import { publishCheckoutCommand } from '@/services/shared/producer';
+import type { CheckoutCommandPayload } from '@/services/shared/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -197,23 +196,18 @@ async function handlePost(request: NextRequest) {
 
     const { paymentId } = paymentResult;
 
-    // 5. Publish payment.success event to Kafka
-    const event: PaymentSuccessEvent = {
-      eventId: randomUUID(),
-      eventType: 'payment.success',
-      timestamp: new Date().toISOString(),
-      payload: {
-        userId,
-        customerName,
-        customerEmail,
-        customerAddress: body.customerAddress,
-        items: validatedItems,
-        totalAmount,
-        paymentId,
-      },
+    // 5. Publish checkout command to Kafka (new 5-topic architecture)
+    const checkoutPayload: CheckoutCommandPayload = {
+      userId,
+      customerName,
+      customerEmail,
+      customerAddress: body.customerAddress,
+      items: validatedItems,
+      totalAmount,
+      paymentId,
     };
 
-    await publishEvent(TOPICS.PAYMENT_EVENTS, event, paymentId);
+    await publishCheckoutCommand(checkoutPayload, paymentId);
 
     logBusinessEvent({
       event: 'checkout_success',

@@ -21,6 +21,7 @@ export const orderStatusEnum = pgEnum('OrderStatus', [
   'DELIVERED',
   'CANCELLED',
 ]);
+export const discountTypeEnum = pgEnum('DiscountType', ['PERCENTAGE', 'FIXED']);
 
 // ─── Auth Tables (NextAuth compatible) ───────────────────
 
@@ -147,6 +148,28 @@ export const orderItems = pgTable('OrderItem', {
   index('OrderItem_variationId_idx').on(t.variationId),
 ]);
 
+// ─── Review Tables ───────────────────────────────────────
+
+export const reviews = pgTable('Review', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text('productId')
+    .notNull()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  userId: text('userId')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  rating: integer('rating').notNull(),
+  title: text('title'),
+  comment: text('comment').notNull(),
+  isVerifiedPurchase: integer('isVerifiedPurchase').default(0).notNull(),
+  createdAt: timestamp('createdAt', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  index('Review_productId_idx').on(t.productId),
+  index('Review_userId_idx').on(t.userId),
+  unique('Review_productId_userId_key').on(t.productId, t.userId),
+]);
+
 // ─── Cart Tables ─────────────────────────────────────────
 
 export const carts = pgTable('Cart', {
@@ -185,6 +208,12 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   sessions: many(sessions),
   orders: many(orders),
   cart: one(carts),
+  reviews: many(reviews),
+  wishlist: one(wishlists),
+  recentlyViewed: many(recentlyViewed),
+  couponUsages: many(couponUsage),
+  priceAlerts: many(priceAlerts),
+  notificationPreferences: one(notificationPreferences),
 }));
 
 export const accountsRelations = relations(accounts, ({ one }) => ({
@@ -199,6 +228,10 @@ export const productsRelations = relations(products, ({ many }) => ({
   variations: many(productVariations),
   orderItems: many(orderItems),
   cartItems: many(cartItems),
+  reviews: many(reviews),
+  wishlistItems: many(wishlistItems),
+  recentlyViewed: many(recentlyViewed),
+  priceAlerts: many(priceAlerts),
 }));
 
 export const productVariationsRelations = relations(productVariations, ({ one, many }) => ({
@@ -210,6 +243,7 @@ export const productVariationsRelations = relations(productVariations, ({ one, m
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   user: one(users, { fields: [orders.userId], references: [users.id] }),
   items: many(orderItems),
+  couponUsages: many(couponUsage),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
@@ -227,4 +261,175 @@ export const cartItemsRelations = relations(cartItems, ({ one }) => ({
   cart: one(carts, { fields: [cartItems.cartId], references: [carts.id] }),
   product: one(products, { fields: [cartItems.productId], references: [products.id] }),
   variation: one(productVariations, { fields: [cartItems.variationId], references: [productVariations.id] }),
+}));
+
+export const reviewsRelations = relations(reviews, ({ one }) => ({
+  product: one(products, { fields: [reviews.productId], references: [products.id] }),
+  user: one(users, { fields: [reviews.userId], references: [users.id] }),
+}));
+
+// ─── Wishlist Tables ─────────────────────────────────────
+
+export const wishlists = pgTable('Wishlist', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('createdAt', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  index('Wishlist_userId_idx').on(t.userId),
+]);
+
+export const wishlistItems = pgTable('WishlistItem', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  wishlistId: text('wishlistId')
+    .notNull()
+    .references(() => wishlists.id, { onDelete: 'cascade' }),
+  productId: text('productId')
+    .notNull()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  createdAt: timestamp('createdAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  unique('WishlistItem_wishlistId_productId_key').on(t.wishlistId, t.productId),
+  index('WishlistItem_wishlistId_idx').on(t.wishlistId),
+  index('WishlistItem_productId_idx').on(t.productId),
+]);
+
+// ─── Wishlist Relations ──────────────────────────────────
+
+export const wishlistsRelations = relations(wishlists, ({ one, many }) => ({
+  user: one(users, { fields: [wishlists.userId], references: [users.id] }),
+  items: many(wishlistItems),
+}));
+
+export const wishlistItemsRelations = relations(wishlistItems, ({ one }) => ({
+  wishlist: one(wishlists, { fields: [wishlistItems.wishlistId], references: [wishlists.id] }),
+  product: one(products, { fields: [wishlistItems.productId], references: [products.id] }),
+}));
+
+// ─── Recently Viewed Tables ──────────────────────────────
+
+export const recentlyViewed = pgTable('RecentlyViewed', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId')
+    .notNull()
+    .references(() => users.id),
+  productId: text('productId')
+    .notNull()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  viewedAt: timestamp('viewedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  unique('RecentlyViewed_userId_productId_key').on(t.userId, t.productId),
+  index('RecentlyViewed_userId_idx').on(t.userId),
+  index('RecentlyViewed_productId_idx').on(t.productId),
+]);
+
+// ─── Coupon Tables ───────────────────────────────────────
+
+export const coupons = pgTable('Coupon', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  code: text('code').notNull().unique(),
+  description: text('description'),
+  discountType: discountTypeEnum('discountType').notNull(),
+  discountValue: doublePrecision('discountValue').notNull(),
+  minOrderAmount: doublePrecision('minOrderAmount').default(0).notNull(),
+  maxUses: integer('maxUses'),
+  currentUses: integer('currentUses').default(0).notNull(),
+  validFrom: timestamp('validFrom', { mode: 'date' }).notNull(),
+  validUntil: timestamp('validUntil', { mode: 'date' }).notNull(),
+  isActive: integer('isActive').default(1).notNull(),
+  createdAt: timestamp('createdAt', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  index('Coupon_code_idx').on(t.code),
+]);
+
+export const couponUsage = pgTable('CouponUsage', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  couponId: text('couponId')
+    .notNull()
+    .references(() => coupons.id),
+  userId: text('userId')
+    .notNull()
+    .references(() => users.id),
+  orderId: text('orderId')
+    .notNull()
+    .references(() => orders.id),
+  usedAt: timestamp('usedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  index('CouponUsage_couponId_idx').on(t.couponId),
+  index('CouponUsage_userId_idx').on(t.userId),
+  index('CouponUsage_orderId_idx').on(t.orderId),
+]);
+
+// ─── Price Alert Tables ──────────────────────────────────
+
+export const priceAlerts = pgTable('PriceAlert', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId')
+    .notNull()
+    .references(() => users.id),
+  productId: text('productId')
+    .notNull()
+    .references(() => products.id, { onDelete: 'cascade' }),
+  targetPrice: doublePrecision('targetPrice').notNull(),
+  isActive: integer('isActive').default(1).notNull(),
+  createdAt: timestamp('createdAt', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  unique('PriceAlert_userId_productId_key').on(t.userId, t.productId),
+  index('PriceAlert_userId_idx').on(t.userId),
+  index('PriceAlert_productId_idx').on(t.productId),
+]);
+
+// ─── Notification Preferences Tables ─────────────────────
+
+export const notificationPreferences = pgTable('NotificationPreference', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('userId')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  emailOrderUpdates: integer('emailOrderUpdates').default(1).notNull(),
+  emailPromotions: integer('emailPromotions').default(1).notNull(),
+  emailPriceAlerts: integer('emailPriceAlerts').default(1).notNull(),
+  pushEnabled: integer('pushEnabled').default(0).notNull(),
+  createdAt: timestamp('createdAt', { mode: 'date' }).defaultNow().notNull(),
+  updatedAt: timestamp('updatedAt', { mode: 'date' }).defaultNow().notNull(),
+}, (t) => [
+  index('NotificationPreference_userId_idx').on(t.userId),
+]);
+
+// ─── Recently Viewed Relations ───────────────────────────
+
+export const recentlyViewedRelations = relations(recentlyViewed, ({ one }) => ({
+  user: one(users, { fields: [recentlyViewed.userId], references: [users.id] }),
+  product: one(products, { fields: [recentlyViewed.productId], references: [products.id] }),
+}));
+
+// ─── Coupon Relations ────────────────────────────────────
+
+export const couponsRelations = relations(coupons, ({ many }) => ({
+  usages: many(couponUsage),
+}));
+
+export const couponUsageRelations = relations(couponUsage, ({ one }) => ({
+  coupon: one(coupons, { fields: [couponUsage.couponId], references: [coupons.id] }),
+  user: one(users, { fields: [couponUsage.userId], references: [users.id] }),
+  order: one(orders, { fields: [couponUsage.orderId], references: [orders.id] }),
+}));
+
+// ─── Price Alert Relations ───────────────────────────────
+
+export const priceAlertsRelations = relations(priceAlerts, ({ one }) => ({
+  user: one(users, { fields: [priceAlerts.userId], references: [users.id] }),
+  product: one(products, { fields: [priceAlerts.productId], references: [products.id] }),
+}));
+
+// ─── Notification Preferences Relations ──────────────────
+
+export const notificationPreferencesRelations = relations(notificationPreferences, ({ one }) => ({
+  user: one(users, { fields: [notificationPreferences.userId], references: [users.id] }),
 }));

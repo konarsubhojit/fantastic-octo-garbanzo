@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import CartIcon from '@/components/layout/CartIcon';
 import CurrencySelector from '@/components/ui/CurrencySelector';
+import SearchBar from '@/components/ui/SearchBar';
 
 export default function Header() {
   const { data: session } = useSession();
@@ -35,12 +36,16 @@ export default function Header() {
 
           <nav className="hidden md:flex gap-8 items-center">
             <Link href="/" className="text-gray-700 hover:text-blue-600 transition-all duration-300">Home</Link>
+            <Link href="/search" className="text-gray-700 hover:text-blue-600 transition-all duration-300">Browse</Link>
             {session?.user && (
               <Link href="/orders" className="text-gray-700 hover:text-blue-600 transition-all duration-300">My Orders</Link>
             )}
           </nav>
 
           <div className="flex items-center gap-4">
+            <Suspense fallback={<div className="w-48 h-10 bg-gray-100 rounded-lg animate-pulse" />}>
+              <SearchBar showInHeader placeholder="Search..." />
+            </Suspense>
             <CurrencySelector />
             <CartIcon />
 

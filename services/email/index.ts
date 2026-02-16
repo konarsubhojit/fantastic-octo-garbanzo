@@ -1,9 +1,11 @@
-import { createConsumer } from '../shared/consumer';
+import { createTypedConsumer, gracefulShutdown, MessageMetadata } from '../shared/consumer';
+import { publishAuditLog } from '../shared/producer';
 import { ensureTopicsExist } from '../shared/admin';
 import { TOPICS } from '../shared/kafka';
-import { OrderCreatedEvent } from '../shared/types';
+import { EmailNotificationEvent, OrderItem } from '../shared/types';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { Consumer } from 'kafkajs';
 
 // ─── SMTP Configuration ──────────────────────────────────
 // Set these environment variables to enable real email sending:
@@ -83,35 +85,17 @@ async function sendEmail(
   }
 }
 
-// ─── Order Confirmation Handler ──────────────────────────
+// ─── Template Rendering ──────────────────────────────────
 
-async function handleOrderCreated(event: OrderCreatedEvent): Promise<void> {
-  const { orderId, customerName, customerEmail, items, totalAmount } = event.payload;
-
-  console.log(`[Email Service] Sending order confirmation for order ${orderId}`);
-
-  const subject = `Order Confirmation - ${orderId}`;
-  const textContent = formatOrderEmailText(orderId, customerName, items, totalAmount);
-  const htmlContent = formatOrderEmailHtml(orderId, customerName, items, totalAmount);
-
-  const success = await sendEmail(customerEmail, subject, textContent, htmlContent);
-
-  if (success) {
-    console.log(`[Email Service] Order confirmation sent to ${customerEmail} for order ${orderId}`);
-  } else {
-    console.error(`[Email Service] Failed to send confirmation to ${customerEmail} for order ${orderId}`);
-  }
+interface OrderConfirmationData {
+  orderId: string;
+  customerName: string;
+  items: OrderItem[];
+  totalAmount: number;
 }
 
-// ─── Email Templates ─────────────────────────────────────
-
-function formatOrderEmailText(
-  orderId: string,
-  customerName: string,
-  items: OrderCreatedEvent['payload']['items'],
-  totalAmount: number
-): string {
-  const itemLines = items
+function renderOrderConfirmationText(data: OrderConfirmationData): string {
+  const itemLines = data.items
     .map(
       (item, i) =>
         `  ${i + 1}. Product: ${item.productName || item.productId} | Qty: ${item.quantity} | Price: $${item.price.toFixed(2)}`
@@ -119,16 +103,16 @@ function formatOrderEmailText(
     .join('\n');
 
   return `
-Dear ${customerName},
+Dear ${data.customerName},
 
 Thank you for your order! Here are your order details:
 
-Order ID: ${orderId}
+Order ID: ${data.orderId}
 
 Items:
 ${itemLines}
 
-Total: $${totalAmount.toFixed(2)}
+Total: $${data.totalAmount.toFixed(2)}
 
 Your order is being processed and you will receive shipping updates soon.
 
@@ -137,13 +121,8 @@ E-Commerce Store
 `.trim();
 }
 
-function formatOrderEmailHtml(
-  orderId: string,
-  customerName: string,
-  items: OrderCreatedEvent['payload']['items'],
-  totalAmount: number
-): string {
-  const itemRows = items
+function renderOrderConfirmationHtml(data: OrderConfirmationData): string {
+  const itemRows = data.items
     .map(
       (item) => `
         <tr>
@@ -168,11 +147,11 @@ function formatOrderEmailHtml(
   </div>
   
   <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
-    <p>Dear <strong>${customerName}</strong>,</p>
+    <p>Dear <strong>${data.customerName}</strong>,</p>
     <p>Thank you for your order! Here are your order details:</p>
     
     <div style="background: white; padding: 15px; border-radius: 8px; margin: 20px 0;">
-      <p style="margin: 0 0 10px 0;"><strong>Order ID:</strong> ${orderId}</p>
+      <p style="margin: 0 0 10px 0;"><strong>Order ID:</strong> ${data.orderId}</p>
     </div>
     
     <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px;">
@@ -189,7 +168,7 @@ function formatOrderEmailHtml(
       <tfoot>
         <tr style="background: #f0f0f0;">
           <td colspan="2" style="padding: 12px; font-weight: bold;">Total</td>
-          <td style="padding: 12px; text-align: right; font-weight: bold; font-size: 1.2em;">$${totalAmount.toFixed(2)}</td>
+          <td style="padding: 12px; text-align: right; font-weight: bold; font-size: 1.2em;">$${data.totalAmount.toFixed(2)}</td>
         </tr>
       </tfoot>
     </table>
@@ -210,26 +189,100 @@ function formatOrderEmailHtml(
 `.trim();
 }
 
+// ─── Template Registry ───────────────────────────────────
+
+type TemplateRenderer = (data: Record<string, unknown>) => { text: string; html: string };
+
+const templates: Record<string, TemplateRenderer> = {
+  'order-confirmation': (data) => ({
+    text: renderOrderConfirmationText(data as unknown as OrderConfirmationData),
+    html: renderOrderConfirmationHtml(data as unknown as OrderConfirmationData),
+  }),
+};
+
+// ─── Notification Handler ────────────────────────────────
+
+async function handleEmailNotification(
+  event: EmailNotificationEvent,
+  metadata: MessageMetadata
+): Promise<void> {
+  const { to, subject, templateId, templateData, priority } = event.payload;
+  const correlationId = event.correlationId;
+
+  console.log(`[Email Service] Processing ${priority} priority email to ${to}: ${subject}`);
+
+  // Render template
+  const renderer = templates[templateId];
+  if (!renderer) {
+    console.error(`[Email Service] Unknown template: ${templateId}`);
+    return;
+  }
+
+  const { text, html } = renderer(templateData);
+
+  // Send email
+  const success = await sendEmail(to, subject, text, html);
+
+  // Audit log
+  await publishAuditLog({
+    action: success ? 'email.sent' : 'email.failed',
+    entityType: 'email',
+    entityId: event.eventId,
+    metadata: {
+      to,
+      subject,
+      templateId,
+      priority,
+      partition: metadata.partition,
+      offset: metadata.offset,
+    },
+  }, correlationId);
+
+  if (success) {
+    console.log(`[Email Service] Email sent to ${to}`);
+  } else {
+    console.error(`[Email Service] Failed to send email to ${to}`);
+  }
+}
+
+// ─── Service Lifecycle ───────────────────────────────────
+
+let consumer: Consumer | null = null;
+
 async function start(): Promise<void> {
   console.log('[Email Service] Starting...');
+  console.log('[Email Service] Architecture: 5-topic optimized design');
+  console.log(`[Email Service] SMTP configured: ${isSmtpConfigured ? 'yes' : 'no (mock mode)'}`);
+
   await ensureTopicsExist();
 
-  await createConsumer({
+  // Subscribe to NOTIFICATIONS topic, filter for email notifications
+  consumer = await createTypedConsumer<EmailNotificationEvent>({
     groupId: 'email-service',
-    topics: [TOPICS.ORDER_EVENTS],
-    handler: async ({ message }) => {
-      if (!message.value) return;
-
-      const event = JSON.parse(message.value.toString()) as OrderCreatedEvent;
-
-      if (event.eventType === 'order.created') {
-        await handleOrderCreated(event);
-      }
-    },
+    topics: [TOPICS.NOTIFICATIONS],
+    eventTypes: ['notification.email'],
+    handler: handleEmailNotification,
+    enableDLQ: true,
+    maxRetries: 3,
   });
 
-  console.log('[Email Service] Running and consuming order-events');
+  console.log('[Email Service] Running - consuming from ecom.notifications (email events)');
 }
+
+// ─── Graceful Shutdown ───────────────────────────────────
+
+async function shutdown(): Promise<void> {
+  console.log('[Email Service] Shutting down...');
+  if (consumer) {
+    await gracefulShutdown(consumer);
+  }
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+// ─── Entry Point ─────────────────────────────────────────
 
 try {
   await start();

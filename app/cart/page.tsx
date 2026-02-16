@@ -33,6 +33,17 @@ export default function CartPage() {
   const [paymentId, setPaymentId] = useState('');
   const [error, setError] = useState('');
 
+  // Coupon state
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discountAmount: number;
+    discountType: string;
+    discountValue: number;
+  } | null>(null);
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponError, setCouponError] = useState('');
+
   useEffect(() => {
     dispatch(fetchCart());
   }, [dispatch]);
@@ -63,7 +74,7 @@ export default function CartPage() {
     }
   };
 
-  const calculateTotal = () => {
+  const calculateSubtotal = () => {
     if (!cart?.items) return 0;
     return cart.items.reduce((total, item) => {
       const price = item.variation
@@ -71,6 +82,62 @@ export default function CartPage() {
         : item.product.price;
       return total + price * item.quantity;
     }, 0);
+  };
+
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
+    if (appliedCoupon) {
+      return Math.max(0, subtotal - appliedCoupon.discountAmount);
+    }
+    return subtotal;
+  };
+
+  const handleApplyCoupon = async () => {
+    if (!couponCode.trim()) {
+      setCouponError('Please enter a coupon code');
+      return;
+    }
+
+    setCouponLoading(true);
+    setCouponError('');
+
+    try {
+      const res = await fetch('/api/coupons/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code: couponCode.trim(),
+          orderTotal: calculateSubtotal(),
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.error || 'Failed to apply coupon');
+      }
+
+      setAppliedCoupon({
+        code: result.data.code,
+        discountAmount: result.data.discountAmount,
+        discountType: result.data.discountType,
+        discountValue: result.data.discountValue,
+      });
+      setCouponCode('');
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setCouponError(err.message);
+      } else {
+        setCouponError('Failed to apply coupon');
+      }
+    } finally {
+      setCouponLoading(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponError('');
   };
 
   const handlePlaceOrder = async () => {
@@ -326,11 +393,76 @@ export default function CartPage() {
               <div className="bg-white/80 backdrop-blur-lg rounded-2xl shadow-xl border border-white/50 p-6 sticky top-28">
                 <h2 className="text-lg font-bold text-gray-900 mb-4">Order Summary</h2>
 
+                {/* Coupon Code Section */}
+                <div className="mb-4">
+                  <label htmlFor="coupon-code" className="block text-sm font-semibold text-gray-700 mb-2">
+                    Coupon Code
+                  </label>
+                  {appliedCoupon ? (
+                    <div className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="text-sm font-medium text-green-800">{appliedCoupon.code}</span>
+                      </div>
+                      <button
+                        onClick={handleRemoveCoupon}
+                        className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        id="coupon-code"
+                        type="text"
+                        value={couponCode}
+                        onChange={(e) => {
+                          setCouponCode(e.target.value);
+                          setCouponError('');
+                        }}
+                        placeholder="Enter code"
+                        className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white/50"
+                      />
+                      <button
+                        onClick={handleApplyCoupon}
+                        disabled={couponLoading}
+                        className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {couponLoading ? (
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                          </svg>
+                        ) : (
+                          'Apply'
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  {couponError && (
+                    <p className="mt-2 text-xs text-red-600 flex items-center gap-1">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                      {couponError}
+                    </p>
+                  )}
+                </div>
+
                 <div className="space-y-3 mb-4 text-sm">
                   <div className="flex justify-between text-gray-600">
                     <span>Subtotal ({cart.items.reduce((s, i) => s + i.quantity, 0)} items)</span>
-                    <span className="font-medium">{formatPrice(calculateTotal())}</span>
+                    <span className="font-medium">{formatPrice(calculateSubtotal())}</span>
                   </div>
+                  {appliedCoupon && (
+                    <div className="flex justify-between text-green-600">
+                      <span>Discount ({appliedCoupon.code})</span>
+                      <span className="font-medium">-{formatPrice(appliedCoupon.discountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-gray-600">
                     <span>Shipping</span>
                     <span className="text-green-600 font-medium">Free</span>

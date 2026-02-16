@@ -50,3 +50,4 @@ logs/
 
 # Docker
 docker-compose.override.yml
+.playwright-mcp/*

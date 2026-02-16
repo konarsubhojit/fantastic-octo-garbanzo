@@ -116,3 +116,66 @@ export interface AddToCartInput {
 export interface UpdateCartItemInput {
   quantity: number;
 }
+
+// Review types
+export interface Review {
+  id: string;
+  productId: string;
+  userId: string;
+  rating: number;
+  title: string | null;
+  comment: string;
+  isVerifiedPurchase: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReviewWithUser extends Review {
+  user: {
+    id: string;
+    name: string | null;
+    image: string | null;
+  };
+}
+
+export interface CreateReviewInput {
+  rating: number;
+  title?: string;
+  comment: string;
+}
+
+export interface ProductReviewStats {
+  averageRating: number;
+  totalReviews: number;
+  ratingDistribution: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
+}
+
+// Wishlist types
+export interface Wishlist {
+  id: string;
+  userId: string;
+  items: WishlistItemWithProduct[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WishlistItem {
+  id: string;
+  wishlistId: string;
+  productId: string;
+  createdAt: string;
+}
+
+export interface WishlistItemWithProduct extends WishlistItem {
+  product: Product;
+}
+
+export interface AddToWishlistInput {
+  productId: string;
+}

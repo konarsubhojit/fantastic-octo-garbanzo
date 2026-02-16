@@ -160,6 +160,14 @@ export default async function AdminPage() {
 ```
 app/
   ├── api/              # API routes
+  │   ├── coupons/      # Coupon management (admin + validation)
+  │   ├── price-alerts/ # Price drop alerts
+  │   ├── recently-viewed/ # Track viewed products
+  │   └── notifications/ # User notification preferences
+  ├── account/          # User account pages
+  │   ├── settings/     # Notification preferences
+  │   ├── price-alerts/ # Manage price alerts
+  │   └── recently-viewed/ # View history
   ├── auth/             # Authentication pages
   ├── admin/            # Admin panel
   ├── products/         # Product pages
@@ -203,6 +211,40 @@ services/
   logs/
     index.ts           # Audit logging service
 ```
+
+## Modern Features
+
+### Recently Viewed Products
+- Tracks products viewed by authenticated users
+- API: GET/POST `/api/recently-viewed`
+- UI: `/account/recently-viewed` - View history page
+- Auto-tracked via useEffect on product page
+
+### Promotional Coupons
+- Admin creates/manages coupons at `/api/coupons`
+- Coupon types: PERCENTAGE or FIXED discount
+- Validation: date range, max uses, min order amount
+- Applied at checkout via cart page coupon input
+- API: GET/POST `/api/coupons`, GET `/api/coupons/[code]`, POST `/api/coupons/apply`
+
+### Price Drop Alerts
+- Users set target price for products
+- Bell icon on product page opens alert modal
+- API: GET/POST `/api/price-alerts`, PATCH/DELETE `/api/price-alerts/[id]`
+- UI: `/account/price-alerts` - Manage alerts
+
+### Notification Preferences
+- Users control email/push notification settings
+- API: GET/PUT `/api/notifications/preferences`
+- UI: `/account/settings` - Toggle notifications
+- Settings: emailOrderUpdates, emailPromotions, emailPriceAlerts, pushEnabled
+
+### Database Tables
+- `recentlyViewed` - User product view history
+- `coupons` - Promotional codes with discounts
+- `couponUsage` - Track coupon redemptions
+- `priceAlerts` - User price alert subscriptions
+- `notificationPreferences` - User notification settings
 
 ## Common Patterns
 
@@ -338,33 +380,58 @@ npm run db:seed      # Seed database
 - Configure Google OAuth credentials
 - Use production-grade secrets
 
-## Microservices Architecture (Kafka Event Pipeline)
+## Microservices Architecture (Optimized 5-Topic Kafka Pipeline)
 
-This project uses a Kafka-based event-driven pipeline for order processing:
+This project uses a Kafka-based event-driven pipeline optimized for a **maximum of 5 topics** while maintaining performance and scalability.
+
+### Architecture Design Principles
+- **Header-based routing** — Event types in message headers enable consumer filtering
+- **Consumer groups** — Horizontal scaling within each topic via consumer groups
+- **Domain-driven topics** — Topics organized by business domain, not event type
+- **Idempotent producers** — Exactly-once semantics with GZIP compression
+- **Built-in DLQ** — Dead letter events routed to analytics topic
+
+### Topic Structure (5 Topics Max)
+| Topic | Purpose | Partitions | Key Strategy |
+|-------|---------|------------|--------------|
+| `ecom.commands` | Incoming commands (checkout, reservations) | 6 | paymentId/orderId |
+| `ecom.orders` | Order lifecycle events | 6 | orderId |
+| `ecom.notifications` | Email, push, SMS triggers | 3 | recipient |
+| `ecom.inventory` | Stock updates, alerts | 6 | productId |
+| `ecom.analytics` | Audit logs, metrics, DLQ | 3 | entityId |
 
 ### Pipeline Flow
-1. **Client (Next.js)** → POST `/api/checkout` — validates cart, processes mock payment
-2. **Payment API** → publishes `payment.success` to Kafka topic `payment-events`
-3. **Orders Service** → consumes `payment.success`, creates order in DB, publishes `order.created` to `order-events`
-4. **Email Service** → consumes `order.created`, sends confirmation email (mock)
-5. **Logs Service** → consumes `order.created`, logs structured event to file and console
+1. **Client (Next.js)** → POST `/api/checkout` — validates cart, processes payment
+2. **Checkout API** → publishes `command.checkout` to `ecom.commands`
+3. **Orders Service** → consumes checkout commands, creates order, publishes:
+   - `order.created` to `ecom.orders`
+   - `notification.email` to `ecom.notifications`
+   - `inventory.stock.updated` to `ecom.inventory`
+   - `analytics.audit` to `ecom.analytics`
+4. **Email Service** → consumes `notification.email`, sends confirmation
+5. **Logs Service** → consumes from orders, inventory, analytics topics
 
 ### Service Structure
 ```
 services/
-  shared/          # Kafka client, producer, consumer, types, admin
-    kafka.ts       # Kafka client config and topic constants
-    types.ts       # Event type definitions (PaymentSuccessEvent, OrderCreatedEvent)
-    producer.ts    # Singleton producer with publishEvent()
-    consumer.ts    # Consumer factory with createConsumer()
-    admin.ts       # Topic creation/management
-    setup-topics.ts # Standalone topic setup script
-  orders/          # Order creation service
-    index.ts
-  email/           # Email notification service
-    index.ts
-  logs/            # Audit logging service
-    index.ts
+  shared/
+    kafka.ts       # Client config, TOPICS constant, TOPIC_CONFIG
+    types.ts       # All event types with BaseEvent<T,P> pattern
+    producer.ts    # publishCheckoutCommand(), publishOrderCreated(), etc.
+    consumer.ts    # createTypedConsumer<T>() with event filtering
+    admin.ts       # ensureTopicsExist() with config
+  orders/          # Consumes commands, publishes orders + notifications
+  email/           # Consumes notification.email events
+  logs/            # Consumes orders, inventory, analytics
+```
+
+### Event Type Naming Convention
+```
+command.{action}        → ecom.commands
+order.{lifecycle}       → ecom.orders
+notification.{channel}  → ecom.notifications
+inventory.{action}      → ecom.inventory
+analytics.{type}        → ecom.analytics
 ```
 
 ### Running Services
@@ -372,7 +439,7 @@ services/
 # Start Kafka infrastructure
 docker-compose up -d
 
-# Create topics
+# Create topics (5 topics with optimized config)
 npm run kafka:setup
 
 # Start individual services
@@ -384,28 +451,54 @@ npm run service:logs
 npm run services:all
 ```
 
-### Kafka Topics
-- `payment-events` — Payment success/failure events
-- `order-events` — Order lifecycle events
+### Event Types Reference
 
-### Event Types
-- `PaymentSuccessEvent` — Published after successful payment
-- `OrderCreatedEvent` — Published after order is created in DB
+**Commands Topic (`ecom.commands`)**
+- `command.checkout` — Checkout request with payment info
+- `command.inventory.reserve` — Reserve stock for order
+- `command.inventory.release` — Release reserved stock
+
+**Orders Topic (`ecom.orders`)**
+- `order.created` — New order created
+- `order.confirmed` — Order confirmed
+- `order.shipped` — Order shipped
+- `order.delivered` — Order delivered
+- `order.cancelled` — Order cancelled
+
+**Notifications Topic (`ecom.notifications`)**
+- `notification.email` — Email notification request
+- `notification.push` — Push notification request
+- `notification.sms` — SMS notification request
+
+**Inventory Topic (`ecom.inventory`)**
+- `inventory.stock.updated` — Stock level changed
+- `inventory.stock.low` — Low stock alert
+- `inventory.stock.reserved` — Stock reserved for order
+
+**Analytics Topic (`ecom.analytics`)**
+- `analytics.audit` — Audit log entry
+- `analytics.metric` — Business metric
+- `analytics.dlq` — Dead letter queue event
 
 ### Environment Variables
 - `KAFKA_BROKERS` — Kafka broker addresses (default: `localhost:9092`)
 - `KAFKA_CLIENT_ID` — Kafka client identifier (default: `ecommerce-app`)
 
 ### Email Service Configuration
-The Email Service uses nodemailer with SMTP. Set these env vars to enable real email sending:
-- `SMTP_HOST` — SMTP server (e.g., smtp.gmail.com, smtp.sendgrid.net)
+- `SMTP_HOST` — SMTP server (e.g., smtp.gmail.com)
 - `SMTP_PORT` — SMTP port (default: 587)
 - `SMTP_SECURE` — Use TLS (default: false)
 - `SMTP_USER` — SMTP username
-- `SMTP_PASS` — SMTP password or app-specific password
+- `SMTP_PASS` — SMTP password
 - `EMAIL_FROM` — Sender address (default: noreply@ecommerce-store.com)
 
-When SMTP is not configured, emails are logged to console (mock mode).
+### Performance Optimizations
+- **GZIP compression** on all messages
+- **Idempotent producer** for exactly-once semantics
+- **Typed consumers** with built-in event filtering
+- **Graceful shutdown** handling
+- **Correlation IDs** for distributed tracing
+- **DLQ support** without additional topics
 
 ## When Adding New Dependencies
 1. Check if similar functionality exists

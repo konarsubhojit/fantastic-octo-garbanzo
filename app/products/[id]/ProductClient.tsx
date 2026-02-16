@@ -1,17 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link'
 import Image from 'next/image';
 import { useDispatch } from 'react-redux';
+import { useSession } from 'next-auth/react';
 import { Product, ProductVariation } from '@/lib/types';
 import { addToCart } from '@/lib/features/cart/cartSlice';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import type { AppDispatch } from '@/lib/store';
 import Header from '@/components/layout/Header';
+import ProductReviews from '@/components/sections/ProductReviews';
 
 interface ProductClientProps {
   readonly product: Product;
+}
+
+interface PriceAlert {
+  id: string;
+  targetPrice: number;
+  isActive: boolean;
 }
 
 // Helper component for stock badge to avoid nested ternary
@@ -49,6 +57,7 @@ function ProductStockBadge({ stock }: { readonly stock: number }) {
 export default function ProductClient({ product }: ProductClientProps) {
   const dispatch = useDispatch<AppDispatch>();
   const { formatPrice } = useCurrency();
+  const { data: session } = useSession();
   const [quantity, setQuantity] = useState(1);
   const [selectedVariation, setSelectedVariation] = useState<ProductVariation | null>(
     product.variations && product.variations.length > 0 ? product.variations[0] : null
@@ -56,6 +65,57 @@ export default function ProductClient({ product }: ProductClientProps) {
   const [addingToCart, setAddingToCart] = useState(false);
   const [cartSuccess, setCartSuccess] = useState(false);
   const [error, setError] = useState('');
+  
+  // Price alert state
+  const [showPriceAlert, setShowPriceAlert] = useState(false);
+  const [existingAlert, setExistingAlert] = useState<PriceAlert | null>(null);
+  const [targetPrice, setTargetPrice] = useState('');
+  const [alertLoading, setAlertLoading] = useState(false);
+  const [alertSuccess, setAlertSuccess] = useState(false);
+  const [alertError, setAlertError] = useState('');
+  const priceAlertRef = useRef<HTMLDivElement>(null);
+
+  // Track recently viewed products
+  useEffect(() => {
+    if (session?.user) {
+      fetch('/api/recently-viewed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: product.id }),
+      }).catch(() => {}); // Ignore errors silently
+    }
+  }, [product.id, session?.user]);
+
+  // Fetch existing price alert
+  useEffect(() => {
+    if (session?.user) {
+      fetch('/api/price-alerts')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.alerts) {
+            const alert = data.alerts.find(
+              (a: PriceAlert & { productId: string }) => a.productId === product.id && a.isActive
+            );
+            if (alert) {
+              setExistingAlert(alert);
+              setTargetPrice(alert.targetPrice.toString());
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, [product.id, session?.user]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (priceAlertRef.current && !priceAlertRef.current.contains(event.target as Node)) {
+        setShowPriceAlert(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const effectivePrice = selectedVariation
     ? product.price + selectedVariation.priceModifier
@@ -86,6 +146,48 @@ export default function ProductClient({ product }: ProductClientProps) {
       setError(typeof err === 'string' ? err : 'Something went wrong. Please try again.');
     } finally {
       setAddingToCart(false);
+    }
+  };
+
+  const handleSetPriceAlert = async () => {
+    if (!session?.user) {
+      setAlertError('Please sign in to set price alerts');
+      return;
+    }
+
+    const price = Number.parseFloat(targetPrice);
+    if (Number.isNaN(price) || price <= 0) {
+      setAlertError('Please enter a valid price');
+      return;
+    }
+
+    setAlertLoading(true);
+    setAlertError('');
+    setAlertSuccess(false);
+
+    try {
+      const res = await fetch('/api/price-alerts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: product.id, targetPrice: price }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to set price alert');
+      }
+
+      setExistingAlert(data.alert);
+      setAlertSuccess(true);
+      setTimeout(() => {
+        setAlertSuccess(false);
+        setShowPriceAlert(false);
+      }, 2000);
+    } catch (err) {
+      setAlertError(err instanceof Error ? err.message : 'Something went wrong');
+    } finally {
+      setAlertLoading(false);
     }
   };
 
@@ -135,14 +237,110 @@ export default function ProductClient({ product }: ProductClientProps) {
               <p className="text-gray-700 text-lg mb-8 leading-relaxed">{product.description}</p>
 
               <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl border border-blue-100">
-                <span className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                  {formatPrice(effectivePrice)}
-                </span>
-                {selectedVariation && selectedVariation.priceModifier !== 0 && (
-                  <div className="mt-2 text-sm text-gray-600">
-                    Base: {formatPrice(product.price)} {selectedVariation.priceModifier > 0 ? '+' : '-'}{formatPrice(Math.abs(selectedVariation.priceModifier))}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <span className="text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                      {formatPrice(effectivePrice)}
+                    </span>
+                    {selectedVariation && selectedVariation.priceModifier !== 0 && (
+                      <div className="mt-2 text-sm text-gray-600">
+                        Base: {formatPrice(product.price)} {selectedVariation.priceModifier > 0 ? '+' : '-'}{formatPrice(Math.abs(selectedVariation.priceModifier))}
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* Price Alert Button */}
+                  <div className="relative" ref={priceAlertRef}>
+                    <button
+                      onClick={() => {
+                        if (!showPriceAlert) {
+                          // Pre-fill with 10% below current price if no existing alert
+                          if (!existingAlert) {
+                            setTargetPrice((effectivePrice * 0.9).toFixed(2));
+                          }
+                        }
+                        setShowPriceAlert(!showPriceAlert);
+                        setAlertError('');
+                        setAlertSuccess(false);
+                      }}
+                      className={`p-3 rounded-xl transition-all duration-300 ${
+                        existingAlert
+                          ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg'
+                          : 'bg-white border-2 border-gray-200 text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                      }`}
+                      title={existingAlert ? 'Edit Price Alert' : 'Set Price Alert'}
+                      aria-expanded={showPriceAlert}
+                      aria-haspopup="dialog"
+                    >
+                      <svg className="w-6 h-6" fill={existingAlert ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </button>
+
+                    {/* Price Alert Dropdown */}
+                    {showPriceAlert && (
+                      <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-xl shadow-2xl border border-gray-200 p-4 z-50">
+                        <h4 className="font-bold text-gray-800 mb-3">
+                          {existingAlert ? 'Edit Price Alert' : 'Set Price Alert'}
+                        </h4>
+                        
+                        {!session?.user && (
+                          <p className="text-sm text-gray-600 mb-3">
+                            <Link href="/auth/signin" className="text-blue-600 hover:underline">Sign in</Link> to set price alerts
+                          </p>
+                        )}
+
+                        {session?.user && (
+                          <>
+                            <p className="text-sm text-gray-600 mb-3">
+                              Get notified when the price drops to your target
+                            </p>
+                            
+                            <div className="mb-3">
+                              <label htmlFor="target-price" className="block text-sm font-medium text-gray-700 mb-1">
+                                Target Price
+                              </label>
+                              <input
+                                id="target-price"
+                                type="number"
+                                step="0.01"
+                                min="0.01"
+                                value={targetPrice}
+                                onChange={(e) => setTargetPrice(e.target.value)}
+                                className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                placeholder="Enter target price"
+                              />
+                            </div>
+
+                            {alertError && (
+                              <p className="text-sm text-red-600 mb-3">{alertError}</p>
+                            )}
+
+                            {alertSuccess && (
+                              <p className="text-sm text-green-600 mb-3">Alert set successfully!</p>
+                            )}
+
+                            <button
+                              onClick={handleSetPriceAlert}
+                              disabled={alertLoading}
+                              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-300"
+                            >
+                              {alertLoading && 'Setting...'}
+                              {!alertLoading && existingAlert && 'Update Alert'}
+                              {!alertLoading && !existingAlert && 'Set Alert'}
+                            </button>
+
+                            {existingAlert && (
+                              <p className="text-xs text-gray-500 mt-2 text-center">
+                                Current alert: {formatPrice(existingAlert.targetPrice)}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Stock Badge */}
@@ -287,6 +485,9 @@ export default function ProductClient({ product }: ProductClientProps) {
             )}
           </div>
         </div>
+
+        {/* Product Reviews Section */}
+        <ProductReviews productId={product.id} />
       </main>
     </div>
   );
