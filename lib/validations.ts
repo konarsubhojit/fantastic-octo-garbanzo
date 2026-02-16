@@ -96,6 +96,8 @@ export const EnvSchema = z.object({
   DATABASE_URL: z.string(),
   REDIS_URL: z.string().optional(),
   NODE_ENV: z.enum(['development', 'production', 'test']).optional(),
+  KAFKA_BROKERS: z.string().optional(),
+  KAFKA_CLIENT_ID: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

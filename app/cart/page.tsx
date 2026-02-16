@@ -30,6 +30,7 @@ export default function CartPage() {
   const [customerAddress, setCustomerAddress] = useState('');
   const [orderLoading, setOrderLoading] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const [paymentId, setPaymentId] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -104,7 +105,7 @@ export default function CartPage() {
         })),
       };
 
-      const res = await fetch('/api/orders', {
+      const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(orderData),
@@ -115,7 +116,9 @@ export default function CartPage() {
         throw new Error(data.error || 'Failed to place order');
       }
 
+      const { data } = await res.json();
       await dispatch(clearCart()).unwrap();
+      setPaymentId(data.paymentId);
       setOrderSuccess(true);
 
       setTimeout(() => {
@@ -206,8 +209,8 @@ export default function CartPage() {
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
             <div>
-              <div className="font-bold text-lg">Order Placed Successfully!</div>
-              <div className="text-sm">Thank you for your order. Redirecting to your orders...</div>
+              <div className="font-bold text-lg">Payment successful! Your order is being processed.</div>
+              <div className="text-sm">Payment ID: {paymentId}. Redirecting to your orders...</div>
             </div>
           </div>
         )}

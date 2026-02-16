@@ -187,6 +187,21 @@ components/
   └── sections/         # Page sections (Hero, ProductGrid)
 drizzle/
   └── *.sql             # Migration files
+scripts/
+services/
+  shared/
+    kafka.ts           # Kafka client config
+    types.ts           # Event types
+    producer.ts        # Kafka producer
+    consumer.ts        # Kafka consumer factory  
+    admin.ts           # Topic management
+    setup-topics.ts    # Standalone topic setup
+  orders/
+    index.ts           # Order creation service
+  email/
+    index.ts           # Email notification service
+  logs/
+    index.ts           # Audit logging service
 ```
 
 ## Common Patterns
@@ -322,6 +337,75 @@ npm run db:seed      # Seed database
 - Run migrations before first deploy
 - Configure Google OAuth credentials
 - Use production-grade secrets
+
+## Microservices Architecture (Kafka Event Pipeline)
+
+This project uses a Kafka-based event-driven pipeline for order processing:
+
+### Pipeline Flow
+1. **Client (Next.js)** → POST `/api/checkout` — validates cart, processes mock payment
+2. **Payment API** → publishes `payment.success` to Kafka topic `payment-events`
+3. **Orders Service** → consumes `payment.success`, creates order in DB, publishes `order.created` to `order-events`
+4. **Email Service** → consumes `order.created`, sends confirmation email (mock)
+5. **Logs Service** → consumes `order.created`, logs structured event to file and console
+
+### Service Structure
+```
+services/
+  shared/          # Kafka client, producer, consumer, types, admin
+    kafka.ts       # Kafka client config and topic constants
+    types.ts       # Event type definitions (PaymentSuccessEvent, OrderCreatedEvent)
+    producer.ts    # Singleton producer with publishEvent()
+    consumer.ts    # Consumer factory with createConsumer()
+    admin.ts       # Topic creation/management
+    setup-topics.ts # Standalone topic setup script
+  orders/          # Order creation service
+    index.ts
+  email/           # Email notification service
+    index.ts
+  logs/            # Audit logging service
+    index.ts
+```
+
+### Running Services
+```bash
+# Start Kafka infrastructure
+docker-compose up -d
+
+# Create topics
+npm run kafka:setup
+
+# Start individual services
+npm run service:orders
+npm run service:email
+npm run service:logs
+
+# Or start all services together
+npm run services:all
+```
+
+### Kafka Topics
+- `payment-events` — Payment success/failure events
+- `order-events` — Order lifecycle events
+
+### Event Types
+- `PaymentSuccessEvent` — Published after successful payment
+- `OrderCreatedEvent` — Published after order is created in DB
+
+### Environment Variables
+- `KAFKA_BROKERS` — Kafka broker addresses (default: `localhost:9092`)
+- `KAFKA_CLIENT_ID` — Kafka client identifier (default: `ecommerce-app`)
+
+### Email Service Configuration
+The Email Service uses nodemailer with SMTP. Set these env vars to enable real email sending:
+- `SMTP_HOST` — SMTP server (e.g., smtp.gmail.com, smtp.sendgrid.net)
+- `SMTP_PORT` — SMTP port (default: 587)
+- `SMTP_SECURE` — Use TLS (default: false)
+- `SMTP_USER` — SMTP username
+- `SMTP_PASS` — SMTP password or app-specific password
+- `EMAIL_FROM` — Sender address (default: noreply@ecommerce-store.com)
+
+When SMTP is not configured, emails are logged to console (mock mode).
 
 ## When Adding New Dependencies
 1. Check if similar functionality exists

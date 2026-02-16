@@ -44,3 +44,9 @@ test-db-connection.ts
 # Claude agent
 tmpclaude*
 nul
+
+# Kafka logs service output
+logs/
+
+# Docker
+docker-compose.override.yml
