@@ -1,151 +1,84 @@
-# E-Commerce Platform
+# E-Commerce Platform - Monorepo
 
-A highly scalable, serverless-first e-commerce platform built with Next.js 16, PostgreSQL, and Redis.
+> 🚀 **Modernized Architecture**: This repository has been restructured into a monorepo with separate client and microservices. See [PROJECT_README.md](./PROJECT_README.md) for the full documentation.
 
-## 🚀 Quick Start
+## Quick Links
 
-```bash
-git clone https://github.com/konarsubhojit/friendly-octo-giggle.git
-cd friendly-octo-giggle
-npm install
-cp .env.example .env
-# Edit .env with your credentials
-npm run db:generate
-npm run db:migrate
-npm run db:seed
-npm run dev
+- **[📖 Full Documentation](./PROJECT_README.md)** - Complete project documentation
+- **[💻 Client App](./client/README.md)** - Main e-commerce UI
+- **[🔧 Microservices](./apps/README.md)** - Backend services
+
+## Repository Structure
+
+```
+/
+├── client/          # Next.js e-commerce UI (port 3000)
+├── apps/            # Microservices (ports 3001-3004)
+├── services/shared/ # Shared types & utilities
+└── lib/             # Database & shared code
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+## Quick Start
 
-## 📚 Documentation
+```bash
+# Install and run all services
+npm install -g concurrently
 
-Complete documentation is available in the [`/docs`](./docs) folder:
+concurrently \
+  "cd client && npm install && npm run dev" \
+  "cd apps/orders-service && npm install && npm run dev" \
+  "cd apps/email-service && npm install && npm run dev" \
+  "cd apps/inventory-service && npm install && npm run dev" \
+  "cd apps/analytics-service && npm install && npm run dev"
+```
 
-- **[Getting Started](./docs/getting-started.md)** - Setup and installation guide
-- **[Architecture](./docs/architecture.md)** - System design and technical overview
-- **[Development](./docs/development.md)** - Development workflows and best practices
-- **[API Reference](./docs/api-reference.md)** - Complete API documentation
-- **[Deployment](./docs/deployment.md)** - Platform-specific deployment guides
-- **[Troubleshooting](./docs/troubleshooting.md)** - Common issues and solutions
+Or run each service in a separate terminal - see [PROJECT_README.md](./PROJECT_README.md) for details.
 
-## ✨ Key Features
+## Architecture
 
-- 🛒 **Full E-Commerce**: Products, cart, orders, and checkout
-- 🔐 **Google OAuth**: Secure authentication with NextAuth.js v5
-- 👥 **Role-Based Access**: Customer and Admin roles
+Event-driven microservices using **Upstash QStash**:
+
+```
+Client (UI) → Checkout → QStash → Orders Service → Email/Inventory/Analytics Services
+```
+
+Each service is independently deployable to Vercel, AWS Lambda, or any serverless platform.
+
+## Key Features
+
+- 🛒 **Full E-Commerce**: Products, cart, orders, checkout
+- 🔐 **Google OAuth**: Secure authentication
 - ⚡ **Redis Caching**: Smart caching with stampede prevention
-- 📦 **Product Variations**: Support for colors, sizes, designs
-- 🎨 **Modern UI**: Responsive design with Tailwind CSS v4
-- 🚀 **Serverless-Ready**: Optimized for Vercel, AWS Lambda, etc.
-- 📊 **Structured Logging**: Production-ready logging with Pino
+- 🚀 **Serverless**: Optimized for Vercel and serverless platforms
+- 📊 **Event-Driven**: Microservices with QStash message queue
+- 🎨 **Modern UI**: Tailwind CSS v4
 - ✅ **Type-Safe**: Full TypeScript with Zod validation
-- 🔄 **Event-Driven**: Asynchronous order processing with QStash webhooks
 
-## 🛠️ Tech Stack
+## Documentation
 
-| Technology | Purpose |
-|------------|---------|
-| **Next.js 16** | React framework with App Router |
-| **TypeScript** | Type-safe development |
-| **PostgreSQL** | Primary database |
-| **Drizzle ORM** | Database toolkit |
-| **Redis** | Caching layer |
-| **NextAuth.js v5** | Authentication |
-| **Tailwind CSS v4** | Styling |
-| **Pino** | Structured logging |
-| **Vercel Blob** | Image storage |
-| **Upstash QStash** | Serverless message queue |
+- **[Full Project README](./PROJECT_README.md)** - Complete documentation
+- **[Client Documentation](./client/README.md)** - UI app details
+- **[Services Overview](./apps/README.md)** - Microservices architecture
+- **[Architecture Guide](./docs/architecture.md)** - System design
+- **[API Reference](./docs/api-reference.md)** - API endpoints
+- **[Deployment Guide](./docs/deployment.md)** - Deployment instructions
 
-## 📋 Requirements
+## Tech Stack
 
-- **Node.js**: 18.0.0 or higher
-- **PostgreSQL**: 12.0 or higher  
-- **Redis**: 6.0 or higher (or Upstash account)
-- **Upstash QStash**: For serverless event processing (sign up at [upstash.com](https://upstash.com))
+| Component | Technology |
+|-----------|------------|
+| **Client** | Next.js 16, TypeScript, Tailwind CSS v4 |
+| **Services** | Next.js 16 (serverless) |
+| **Database** | PostgreSQL + Drizzle ORM |
+| **Cache** | Redis (Upstash) |
+| **Queue** | Upstash QStash |
+| **Auth** | NextAuth.js v5 |
+| **Deploy** | Vercel |
 
-## 🎯 Features Overview
-
-### For Customers
-- Browse and search products
-- View product details with variations
-- Add items to cart (session-based for guests, persistent for logged-in users)
-- **Google OAuth sign-in required for checkout**
-- Place orders with automatic order tracking
-- View order history (linked to account)
-
-### For Administrators
-- Product management (CRUD operations)
-- Order management and status updates
-- User role management
-- Image upload to Vercel Blob
-- Real-time inventory tracking
-- Access via `/admin` URL (no navigation link)
-
-## 🧪 Development
-
-```bash
-# Development server
-npm run dev
-
-# Database commands
-npm run db:generate    # Generate Drizzle schema
-npm run db:migrate     # Run migrations
-npm run db:seed        # Seed test data
-npm run db:studio      # Database GUI
-
-# Production build
-npm run build
-npm run start
-```
-
-### Event Processing Architecture
-
-This application uses **Upstash QStash** for serverless event processing:
-
-- **Checkout → Order Creation**: QStash delivers checkout commands to `/api/webhooks/orders`
-- **Order → Email**: QStash sends email notifications to `/api/webhooks/email`
-- **Inventory Updates**: QStash delivers stock updates to `/api/webhooks/inventory`
-- **Analytics & Audit Logs**: QStash sends events to `/api/webhooks/analytics`
-
-All webhooks are automatically served by Next.js - no separate services needed!
-
-See [Development Guide](./docs/development.md) for detailed workflows.
-
-## 🚀 Deployment
-
-Deploy to your preferred platform:
-
-- **[Vercel](./docs/deployment.md#vercel)** (Recommended)
-- **[AWS Lambda](./docs/deployment.md#aws-lambda)**
-- **[Google Cloud Run](./docs/deployment.md#google-cloud-run)**
-- **[Railway](./docs/deployment.md#railway)**
-
-See [Deployment Guide](./docs/deployment.md) for detailed instructions.
-
-## 📖 Learn More
-
-- **[System Architecture](./docs/architecture.md)** - Understand the technical design
-- **[API Reference](./docs/api-reference.md)** - Explore available endpoints
-- **[Troubleshooting](./docs/troubleshooting.md)** - Solve common issues
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read the [Development Guide](./docs/development.md) for:
-- Code style guidelines
-- Development workflow
-- Testing procedures
-- Pull request process
-
-## 📄 License
+## License
 
 ISC
 
-## 🆘 Support
-
-- **Documentation**: [`/docs`](./docs)
-- **Issues**: [GitHub Issues](https://github.com/konarsubhojit/friendly-octo-giggle/issues)
-
 ---
 
-**Built with ❤️ using Next.js and modern web technologies**
+**Built with ❤️ using Next.js and serverless technologies**
