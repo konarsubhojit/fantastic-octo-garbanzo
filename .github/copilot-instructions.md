@@ -375,77 +375,89 @@ npm run db:seed      # Seed database
 ## Deployment Notes
 - Designed for serverless (Vercel, AWS Lambda, etc.)
 - Requires PostgreSQL and Redis instances
+- Requires Upstash QStash for event processing
 - Set all environment variables
 - Run migrations before first deploy
 - Configure Google OAuth credentials
+- Configure QStash webhook URLs
 - Use production-grade secrets
 
-## Microservices Architecture (Optimized 5-Topic Kafka Pipeline)
+## Event-Driven Architecture (QStash)
 
-This project uses a Kafka-based event-driven pipeline optimized for a **maximum of 5 topics** while maintaining performance and scalability.
+This project uses Upstash QStash for serverless event-driven architecture.
 
-### Architecture Design Principles
-- **Header-based routing** — Event types in message headers enable consumer filtering
-- **Consumer groups** — Horizontal scaling within each topic via consumer groups
-- **Domain-driven topics** — Topics organized by business domain, not event type
-- **Idempotent producers** — Exactly-once semantics with GZIP compression
-- **Built-in DLQ** — Dead letter events routed to analytics topic
+### Why QStash?
+- ✅ Serverless HTTP-based message queue
+- ✅ No infrastructure management (no Kafka/Zookeeper)
+- ✅ Simple webhook-based consumption
+- ✅ Built-in retries and DLQ
+- ✅ At-least-once delivery guarantees
+- ✅ Perfect for serverless platforms
 
-### Topic Structure (5 Topics Max)
-| Topic | Purpose | Partitions | Key Strategy |
-|-------|---------|------------|--------------|
-| `ecom.commands` | Incoming commands (checkout, reservations) | 6 | paymentId/orderId |
-| `ecom.orders` | Order lifecycle events | 6 | orderId |
-| `ecom.notifications` | Email, push, SMS triggers | 3 | recipient |
-| `ecom.inventory` | Stock updates, alerts | 6 | productId |
-| `ecom.analytics` | Audit logs, metrics, DLQ | 3 | entityId |
-
-### Pipeline Flow
-1. **Client (Next.js)** → POST `/api/checkout` — validates cart, processes payment
-2. **Checkout API** → publishes `command.checkout` to `ecom.commands`
-3. **Orders Service** → consumes checkout commands, creates order, publishes:
-   - `order.created` to `ecom.orders`
-   - `notification.email` to `ecom.notifications`
-   - `inventory.stock.updated` to `ecom.inventory`
-   - `analytics.audit` to `ecom.analytics`
-4. **Email Service** → consumes `notification.email`, sends confirmation
-5. **Logs Service** → consumes from orders, inventory, analytics topics
-
-### Service Structure
+### Architecture Overview
 ```
-services/
-  shared/
-    kafka.ts       # Client config, TOPICS constant, TOPIC_CONFIG
-    types.ts       # All event types with BaseEvent<T,P> pattern
-    producer.ts    # publishCheckoutCommand(), publishOrderCreated(), etc.
-    consumer.ts    # createTypedConsumer<T>() with event filtering
-    admin.ts       # ensureTopicsExist() with config
-  orders/          # Consumes commands, publishes orders + notifications
-  email/           # Consumes notification.email events
-  logs/            # Consumes orders, inventory, analytics
+API Routes → QStash → Webhooks
+/api/checkout → publishes events → /api/webhooks/*
 ```
 
-### Event Type Naming Convention
-```
-command.{action}        → ecom.commands
-order.{lifecycle}       → ecom.orders
-notification.{channel}  → ecom.notifications
-inventory.{action}      → ecom.inventory
-analytics.{type}        → ecom.analytics
+### Topics (Webhook Endpoints)
+| Topic | Webhook URL | Purpose |
+|-------|------------|---------|
+| commands | `/api/webhooks/commands` | Checkout, reservations |
+| orders | `/api/webhooks/orders` | Order lifecycle |
+| notifications | `/api/webhooks/notifications` | Email, push, SMS |
+| inventory | `/api/webhooks/inventory` | Stock updates |
+| analytics | `/api/webhooks/analytics` | Audit logs, metrics |
+
+### Publishing Events
+```typescript
+import { publishCheckoutCommand } from '@/lib/qstash-producer';
+
+await publishCheckoutCommand({
+  userId, items, totalAmount, paymentId
+});
 ```
 
-### Running Services
+### Consuming Events (Webhooks)
+```typescript
+import { verifyQStashSignature } from '@/lib/qstash-webhook';
+import { processWithDeduplication } from '@/lib/deduplication';
+
+export async function POST(request: NextRequest) {
+  const event = await verifyQStashSignature<EventType>(request);
+  
+  const { processed } = await processWithDeduplication(event.eventId, async () => {
+    await handleEvent(event);
+  });
+  
+  return NextResponse.json({ success: true, duplicate: !processed });
+}
+```
+
+### Key Features
+- **Signature Verification**: All webhooks verify QStash signatures
+- **Deduplication**: Redis-based duplicate event detection (1-hour TTL)
+- **Retries**: Automatic retries with exponential backoff
+- **DLQ**: Failed events routed to analytics topic
+
+### Environment Variables
 ```bash
-# Start Kafka infrastructure
-docker-compose up -d
+QSTASH_TOKEN=your-token
+QSTASH_CURRENT_SIGNING_KEY=sig_xxx
+QSTASH_NEXT_SIGNING_KEY=sig_yyy
+QSTASH_WEBHOOK_BASE_URL=https://your-domain.com
+```
 
-# Create topics (5 topics with optimized config)
-npm run kafka:setup
+### Development Setup
+Use ngrok for local webhook testing:
+```bash
+ngrok http 3000
+# Set QSTASH_WEBHOOK_BASE_URL to ngrok URL
+```
 
-# Start individual services
-npm run service:orders
-npm run service:email
-npm run service:logs
+See [QSTASH_MIGRATION.md](./QSTASH_MIGRATION.md) for detailed documentation.
+npm run services:all
+```
 
 # Or start all services together
 npm run services:all

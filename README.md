@@ -35,9 +35,10 @@ Complete documentation is available in the [`/docs`](./docs) folder:
 - 🔐 **Google OAuth**: Secure authentication with NextAuth.js v5
 - 👥 **Role-Based Access**: Customer and Admin roles
 - ⚡ **Redis Caching**: Smart caching with stampede prevention
+- 🚀 **QStash Events**: Serverless event-driven architecture
 - 📦 **Product Variations**: Support for colors, sizes, designs
 - 🎨 **Modern UI**: Responsive design with Tailwind CSS v4
-- 🚀 **Serverless-Ready**: Optimized for Vercel, AWS Lambda, etc.
+- 🌐 **Serverless-Ready**: Optimized for Vercel, AWS Lambda, etc.
 - 📊 **Structured Logging**: Production-ready logging with Pino
 - ✅ **Type-Safe**: Full TypeScript with Zod validation
 
@@ -50,6 +51,7 @@ Complete documentation is available in the [`/docs`](./docs) folder:
 | **PostgreSQL** | Primary database |
 | **Drizzle ORM** | Database toolkit |
 | **Redis** | Caching layer |
+| **Upstash QStash** | Serverless message queue |
 | **NextAuth.js v5** | Authentication |
 | **Tailwind CSS v4** | Styling |
 | **Pino** | Structured logging |
@@ -59,7 +61,8 @@ Complete documentation is available in the [`/docs`](./docs) folder:
 
 - **Node.js**: 18.0.0 or higher
 - **PostgreSQL**: 12.0 or higher  
-- **Redis**: 6.0 or higher (or Upstash account)
+- **Redis**: 6.0 or higher (or Upstash Redis)
+- **Upstash QStash**: For event processing (free tier available)
 
 ## 🎯 Features Overview
 

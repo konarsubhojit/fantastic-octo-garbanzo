@@ -7,7 +7,7 @@ import { auth } from '@/lib/auth';
 import { apiSuccess, apiError } from '@/lib/api-utils';
 import { withLogging } from '@/lib/api-middleware';
 import { logBusinessEvent, logError } from '@/lib/logger';
-import { publishCheckoutCommand } from '@/services/shared/producer';
+import { publishCheckoutCommand } from '@/lib/qstash-producer';
 import type { CheckoutCommandPayload } from '@/services/shared/types';
 
 export const dynamic = 'force-dynamic';
