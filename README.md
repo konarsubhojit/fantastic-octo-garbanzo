@@ -40,6 +40,7 @@ Complete documentation is available in the [`/docs`](./docs) folder:
 - 🚀 **Serverless-Ready**: Optimized for Vercel, AWS Lambda, etc.
 - 📊 **Structured Logging**: Production-ready logging with Pino
 - ✅ **Type-Safe**: Full TypeScript with Zod validation
+- 🔄 **Event-Driven**: Asynchronous order processing with QStash webhooks
 
 ## 🛠️ Tech Stack
 
@@ -54,12 +55,14 @@ Complete documentation is available in the [`/docs`](./docs) folder:
 | **Tailwind CSS v4** | Styling |
 | **Pino** | Structured logging |
 | **Vercel Blob** | Image storage |
+| **Upstash QStash** | Serverless message queue |
 
 ## 📋 Requirements
 
 - **Node.js**: 18.0.0 or higher
 - **PostgreSQL**: 12.0 or higher  
 - **Redis**: 6.0 or higher (or Upstash account)
+- **Upstash QStash**: For serverless event processing (sign up at [upstash.com](https://upstash.com))
 
 ## 🎯 Features Overview
 
@@ -86,15 +89,26 @@ Complete documentation is available in the [`/docs`](./docs) folder:
 npm run dev
 
 # Database commands
-npm run db:generate    # Generate Prisma Client
+npm run db:generate    # Generate Drizzle schema
 npm run db:migrate     # Run migrations
 npm run db:seed        # Seed test data
-npx prisma studio      # Database GUI
+npm run db:studio      # Database GUI
 
 # Production build
 npm run build
 npm run start
 ```
+
+### Event Processing Architecture
+
+This application uses **Upstash QStash** for serverless event processing:
+
+- **Checkout → Order Creation**: QStash delivers checkout commands to `/api/webhooks/orders`
+- **Order → Email**: QStash sends email notifications to `/api/webhooks/email`
+- **Inventory Updates**: QStash delivers stock updates to `/api/webhooks/inventory`
+- **Analytics & Audit Logs**: QStash sends events to `/api/webhooks/analytics`
+
+All webhooks are automatically served by Next.js - no separate services needed!
 
 See [Development Guide](./docs/development.md) for detailed workflows.
 
