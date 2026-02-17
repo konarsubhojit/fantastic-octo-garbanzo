@@ -24,17 +24,8 @@ Main App (checkout) → QStash → Orders Service → QStash → Email/Inventory
 - **Events Consumed**: `notification.email`
 - **Events Published**: `analytics.audit`
 
-### 3. **Inventory Service** (`apps/inventory-service`)
-- **Port**: 3003
-- **Purpose**: Tracks inventory changes and low stock alerts
-- **Events Consumed**: `inventory.stock.updated`, `inventory.stock.low`, `inventory.stock.reserved`
-- **Events Published**: None (logging only)
-
-### 4. **Analytics Service** (`apps/analytics-service`)
-- **Port**: 3004
-- **Purpose**: Collects audit logs, metrics, and DLQ events
-- **Events Consumed**: `analytics.audit`, `analytics.metric`, `analytics.dlq`
-- **Events Published**: None (logging only)
+### Additional Services (Planned)
+Additional services for inventory tracking, analytics, and other features can be added following the same pattern.
 
 ## Deployment
 
@@ -50,15 +41,9 @@ vercel
 # Deploy email service
 cd apps/email-service
 vercel
-
-# Deploy inventory service
-cd apps/inventory-service
-vercel
-
-# Deploy analytics service
-cd apps/analytics-service
-vercel
 ```
+
+For additional services, follow the same deployment pattern.
 
 ### Environment Variables
 
@@ -85,20 +70,12 @@ cd apps/email-service
 npm install
 npm run dev
 
-# Terminal 3: Inventory Service
-cd apps/inventory-service
-npm install
-npm run dev
-
-# Terminal 4: Analytics Service
-cd apps/analytics-service
-npm install
-npm run dev
-
-# Terminal 5: Main App
+# Terminal 3: Main App
 cd ../..  # back to root
 npm run dev
 ```
+
+For additional services, add more terminals following the same pattern.
 
 Or use a process manager like `concurrently` or `pm2`:
 
@@ -110,8 +87,6 @@ npm install -g concurrently
 concurrently \
   "cd apps/orders-service && npm run dev" \
   "cd apps/email-service && npm run dev" \
-  "cd apps/inventory-service && npm run dev" \
-  "cd apps/analytics-service && npm run dev" \
   "npm run dev"
 ```
 
