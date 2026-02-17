@@ -24,8 +24,17 @@ Main App (checkout) → QStash → Orders Service → QStash → Email/Inventory
 - **Events Consumed**: `notification.email`
 - **Events Published**: `analytics.audit`
 
-### Additional Services (Planned)
-Additional services for inventory tracking, analytics, and other features can be added following the same pattern.
+### 3. **Inventory Service** (`apps/inventory-service`)
+- **Port**: 3003
+- **Purpose**: Manages product inventory and stock levels
+- **Events Consumed**: `inventory.stock.updated`
+- **Events Published**: `analytics.audit`
+
+### 4. **Analytics Service** (`apps/analytics-service`)
+- **Port**: 3004
+- **Purpose**: Centralized logging and monitoring for audit logs, metrics, and errors
+- **Events Consumed**: `analytics.audit`, `analytics.metric`, `analytics.dlq`
+- **Events Published**: None (logging only)
 
 ## Deployment
 
@@ -40,6 +49,14 @@ vercel
 
 # Deploy email service
 cd apps/email-service
+vercel
+
+# Deploy inventory service
+cd apps/inventory-service
+vercel
+
+# Deploy analytics service
+cd apps/analytics-service
 vercel
 ```
 
@@ -70,7 +87,17 @@ cd apps/email-service
 npm install
 npm run dev
 
-# Terminal 3: Main App
+# Terminal 3: Inventory Service
+cd apps/inventory-service
+npm install
+npm run dev
+
+# Terminal 4: Analytics Service
+cd apps/analytics-service
+npm install
+npm run dev
+
+# Terminal 5: Main App
 cd ../..  # back to root
 npm run dev
 ```
@@ -87,6 +114,8 @@ npm install -g concurrently
 concurrently \
   "cd apps/orders-service && npm run dev" \
   "cd apps/email-service && npm run dev" \
+  "cd apps/inventory-service && npm run dev" \
+  "cd apps/analytics-service && npm run dev" \
   "npm run dev"
 ```
 
