@@ -1,4 +1,4 @@
-import { redis } from '@/lib/redis';
+import { getRedisClient } from '@/lib/redis';
 
 /**
  * Request Deduplication for Webhooks
@@ -22,6 +22,7 @@ export async function isEventProcessed(eventId: string): Promise<boolean> {
   const key = `${DEDUP_KEY_PREFIX}${eventId}`;
   
   try {
+    const redis = await getRedisClient();
     const exists = await redis.exists(key);
     return exists === 1;
   } catch (error) {
@@ -40,6 +41,7 @@ export async function markEventProcessed(eventId: string, ttl: number = DEDUP_TT
   const key = `${DEDUP_KEY_PREFIX}${eventId}`;
   
   try {
+    const redis = await getRedisClient();
     await redis.setex(key, ttl, '1');
   } catch (error) {
     console.error('[Deduplication] Failed to mark event as processed:', error);
