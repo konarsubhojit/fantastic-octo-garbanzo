@@ -1,9 +1,9 @@
 /**
- * Event Types for 5-Topic Kafka Architecture
- * ════════════════════════════════════════════
+ * Event Types for Serverless Event Architecture (QStash)
+ * ═══════════════════════════════════════════════════════
  * 
- * Each topic contains multiple event types identified by headers.
- * Consumers filter events using the eventType header.
+ * Each webhook route handles multiple event types identified by headers.
+ * Event handlers filter events using the eventType header.
  */
 
 // ─── Base Event Structure ──────────────────────────────────
@@ -179,31 +179,35 @@ export type AnalyticsEvent = BusinessMetricEvent | AuditLogEvent | DeadLetterEve
 
 // ─── All Events Union ──────────────────────────────────────
 
-export type KafkaEvent = CommandEvent | OrderEvent | NotificationEvent | InventoryEvent | AnalyticsEvent;
+export type AppEvent = CommandEvent | OrderEvent | NotificationEvent | InventoryEvent | AnalyticsEvent;
+
+// Legacy alias for backward compatibility
+/** @deprecated Use AppEvent instead */
+export type KafkaEvent = AppEvent;
 
 // ─── Event Type Extraction ─────────────────────────────────
 
-export type EventType = KafkaEvent['eventType'];
+export type EventType = AppEvent['eventType'];
 
 // ─── Event Type Guards ─────────────────────────────────────
 
-export function isCommandEvent(event: KafkaEvent): event is CommandEvent {
+export function isCommandEvent(event: AppEvent): event is CommandEvent {
   return event.eventType.startsWith('command.');
 }
 
-export function isOrderEvent(event: KafkaEvent): event is OrderEvent {
+export function isOrderEvent(event: AppEvent): event is OrderEvent {
   return event.eventType.startsWith('order.');
 }
 
-export function isNotificationEvent(event: KafkaEvent): event is NotificationEvent {
+export function isNotificationEvent(event: AppEvent): event is NotificationEvent {
   return event.eventType.startsWith('notification.');
 }
 
-export function isInventoryEvent(event: KafkaEvent): event is InventoryEvent {
+export function isInventoryEvent(event: AppEvent): event is InventoryEvent {
   return event.eventType.startsWith('inventory.');
 }
 
-export function isAnalyticsEvent(event: KafkaEvent): event is AnalyticsEvent {
+export function isAnalyticsEvent(event: AppEvent): event is AnalyticsEvent {
   return event.eventType.startsWith('analytics.');
 }
 

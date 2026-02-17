@@ -1,7 +1,6 @@
-import { Producer, ProducerRecord, CompressionTypes } from 'kafkajs';
-import { kafka, TopicName, TOPICS } from './kafka';
+import { qstashClient, TopicName, TOPICS, WEBHOOK_ROUTES } from './qstash';
 import {
-  KafkaEvent,
+  AppEvent,
   CommandEvent,
   OrderEvent,
   NotificationEvent,
@@ -20,85 +19,46 @@ import {
 } from './types';
 import { randomUUID } from 'node:crypto';
 
-let producer: Producer | null = null;
-
-// ─── Producer Lifecycle ────────────────────────────────────
-
-export async function getProducer(): Promise<Producer> {
-  if (!producer) {
-    producer = kafka.producer({
-      allowAutoTopicCreation: false, // Topics created via admin API
-      transactionTimeout: 30000,
-      maxInFlightRequests: 5,
-      idempotent: true, // Exactly-once semantics
-    });
-    await producer.connect();
-    console.log('[Kafka Producer] Connected with idempotent mode');
-  }
-  return producer;
-}
-
-export async function disconnectProducer(): Promise<void> {
-  if (producer) {
-    await producer.disconnect();
-    producer = null;
-    console.log('[Kafka Producer] Disconnected');
-  }
-}
-
-// ─── Low-Level Publish ─────────────────────────────────────
+// ─── Event Publishing via QStash ───────────────────────────
 
 export async function publishEvent(
-  topic: TopicName,
-  event: KafkaEvent,
-  key?: string
+  route: string,
+  event: AppEvent,
+  _key?: string // Kept for backward compatibility but not used by QStash
 ): Promise<void> {
-  const p = await getProducer();
-  const record: ProducerRecord = {
-    topic,
-    compression: CompressionTypes.GZIP,
-    messages: [
-      {
-        key: key || event.eventId,
-        value: JSON.stringify(event),
-        headers: {
-          eventType: event.eventType,
-          timestamp: event.timestamp,
-          version: event.version,
-          source: event.source,
-          ...(event.correlationId && { correlationId: event.correlationId }),
-        },
+  try {
+    await qstashClient.publishJSON({
+      url: route,
+      body: event,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Event-Type': event.eventType,
+        'X-Event-Id': event.eventId,
+        'X-Event-Timestamp': event.timestamp,
+        'X-Event-Version': event.version,
+        'X-Event-Source': event.source,
+        ...(event.correlationId && { 'X-Correlation-Id': event.correlationId }),
       },
-    ],
-  };
-  await p.send(record);
-  console.log(`[Kafka Producer] Published ${event.eventType} to ${topic}`);
+    });
+    console.log(`[QStash Producer] Published ${event.eventType} to ${route}`);
+  } catch (error) {
+    console.error(`[QStash Producer] Failed to publish ${event.eventType}:`, error);
+    throw error;
+  }
 }
 
 // ─── Batch Publishing ──────────────────────────────────────
 
 export async function publishEvents(
-  topic: TopicName,
-  events: Array<{ event: KafkaEvent; key?: string }>
+  route: string,
+  events: Array<{ event: AppEvent; key?: string }>
 ): Promise<void> {
-  const p = await getProducer();
-  const record: ProducerRecord = {
-    topic,
-    compression: CompressionTypes.GZIP,
-    messages: events.map(({ event, key }) => ({
-      key: key || event.eventId,
-      value: JSON.stringify(event),
-      headers: {
-        eventType: event.eventType,
-        timestamp: event.timestamp,
-        version: event.version,
-        source: event.source,
-        ...(event.correlationId && { correlationId: event.correlationId }),
-      },
-    })),
-  };
-  await p.send(record);
-  console.log(`[Kafka Producer] Published ${events.length} events to ${topic}`);
+  // QStash doesn't have native batch support, so we publish serially
+  // For better performance, consider using Promise.allSettled in production
+  for (const { event } of events) {
+    await publishEvent(route, event);
+  }
+  console.log(`[QStash Producer] Published ${events.length} events to ${route}`);
 }
 
 // ─── Event Factory Helpers ─────────────────────────────────
@@ -122,60 +82,60 @@ function createBaseEvent<T extends string, P>(
 
 // ─── Domain-Specific Publishers ────────────────────────────
 
-/** Publish checkout command to COMMANDS topic */
+/** Publish checkout command to orders webhook */
 export async function publishCheckoutCommand(
   payload: CheckoutCommandPayload,
   correlationId?: string
 ): Promise<CheckoutCommand> {
   const event = createBaseEvent('command.checkout', payload, 'checkout-api', correlationId) as CheckoutCommand;
-  await publishEvent(TOPICS.COMMANDS, event, payload.paymentId);
+  await publishEvent(WEBHOOK_ROUTES.ORDERS, event, payload.paymentId);
   return event;
 }
 
-/** Publish order event to ORDERS topic */
+/** Publish order event to orders webhook */
 export async function publishOrderCreated(
   payload: OrderPayload,
   correlationId?: string
 ): Promise<OrderCreatedEvent> {
   const event = createBaseEvent('order.created', payload, 'orders-service', correlationId) as OrderCreatedEvent;
-  await publishEvent(TOPICS.ORDERS, event, payload.orderId);
+  await publishEvent(WEBHOOK_ROUTES.ORDERS, event, payload.orderId);
   return event;
 }
 
-/** Publish email notification to NOTIFICATIONS topic */
+/** Publish email notification to email webhook */
 export async function publishEmailNotification(
   payload: EmailNotificationPayload,
   correlationId?: string
 ): Promise<EmailNotificationEvent> {
   const event = createBaseEvent('notification.email', payload, 'orders-service', correlationId) as EmailNotificationEvent;
-  await publishEvent(TOPICS.NOTIFICATIONS, event, payload.to);
+  await publishEvent(WEBHOOK_ROUTES.EMAIL, event, payload.to);
   return event;
 }
 
-/** Publish stock update to INVENTORY topic */
+/** Publish stock update to inventory webhook */
 export async function publishStockUpdate(
   payload: StockUpdatePayload,
   correlationId?: string
 ): Promise<StockUpdatedEvent> {
   const event = createBaseEvent('inventory.stock.updated', payload, 'orders-service', correlationId) as StockUpdatedEvent;
-  await publishEvent(TOPICS.INVENTORY, event, payload.productId);
+  await publishEvent(WEBHOOK_ROUTES.INVENTORY, event, payload.productId);
   return event;
 }
 
-/** Publish audit log to ANALYTICS topic */
+/** Publish audit log to analytics webhook */
 export async function publishAuditLog(
   payload: AuditLogPayload,
   correlationId?: string
 ): Promise<AuditLogEvent> {
   const event = createBaseEvent('analytics.audit', payload, 'api', correlationId) as AuditLogEvent;
-  await publishEvent(TOPICS.ANALYTICS, event, payload.entityId);
+  await publishEvent(WEBHOOK_ROUTES.ANALYTICS, event, payload.entityId);
   return event;
 }
 
-// ─── Topic Router ──────────────────────────────────────────
+// ─── Route Router ──────────────────────────────────────────
 
-/** Automatically route events to correct topic based on event type */
-export function getTopicForEvent(event: KafkaEvent): TopicName {
+/** Automatically route events to correct webhook based on event type */
+export function getTopicForEvent(event: AppEvent): TopicName {
   if (event.eventType.startsWith('command.')) return TOPICS.COMMANDS;
   if (event.eventType.startsWith('order.')) return TOPICS.ORDERS;
   if (event.eventType.startsWith('notification.')) return TOPICS.NOTIFICATIONS;
@@ -183,8 +143,20 @@ export function getTopicForEvent(event: KafkaEvent): TopicName {
   return TOPICS.ANALYTICS;
 }
 
-/** Publish event with automatic topic routing */
-export async function publishAutoRoute(event: KafkaEvent, key?: string): Promise<void> {
-  const topic = getTopicForEvent(event);
-  await publishEvent(topic, event, key);
+/** Publish event with automatic route routing */
+export async function publishAutoRoute(event: AppEvent, key?: string): Promise<void> {
+  const route = getTopicForEvent(event);
+  await publishEvent(route, event, key);
+}
+
+// ─── Legacy Functions (no-ops for compatibility) ───────────
+
+/** @deprecated No longer needed with QStash - kept for backward compatibility */
+export async function getProducer(): Promise<null> {
+  return null;
+}
+
+/** @deprecated No longer needed with QStash - kept for backward compatibility */
+export async function disconnectProducer(): Promise<void> {
+  // No-op
 }

@@ -12,12 +12,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
-    "db:seed": "tsx lib/seed.ts",
-    "service:orders": "tsx services/orders/index.ts",
-    "service:email": "tsx services/email/index.ts",
-    "service:logs": "tsx services/logs/index.ts",
-    "services:all": "concurrently \"npm run service:orders\" \"npm run service:email\" \"npm run service:logs\"",
-    "kafka:setup": "tsx services/shared/admin.ts"
+    "db:seed": "tsx lib/seed.ts"
   },
   "repository": {
     "type": "git",
@@ -40,11 +35,11 @@
     "@types/nodemailer": "^7.0.10",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@upstash/qstash": "^2.7.26",
     "@vercel/blob": "^2.2.0",
     "autoprefixer": "^10.4.24",
     "drizzle-orm": "^0.45.1",
     "ioredis": "^5.9.3",
-    "kafkajs": "^2.2.4",
     "next": "^16.1.6",
     "next-auth": "^5.0.0-beta.30",
     "nodemailer": "^7.0.13",

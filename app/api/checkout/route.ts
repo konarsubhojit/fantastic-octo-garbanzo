@@ -196,7 +196,7 @@ async function handlePost(request: NextRequest) {
 
     const { paymentId } = paymentResult;
 
-    // 5. Publish checkout command to Kafka (new 5-topic architecture)
+    // 5. Publish checkout command via QStash to orders webhook
     const checkoutPayload: CheckoutCommandPayload = {
       userId,
       customerName,
