@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyQStashSignature, getEventMetadata } from '@/lib/qstash-webhook';
+import { processWithDeduplication } from '@/lib/deduplication';
 import { EmailNotificationEvent, OrderItem } from '@/services/shared/types';
 import { publishAuditLog } from '@/lib/qstash-producer';
 import nodemailer from 'nodemailer';
@@ -249,20 +250,28 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Notifications Webhook] Received ${event.eventType} (retry: ${metadata.retryCount})`);
 
-    // Route based on event type
-    switch (event.eventType) {
-      case 'notification.email':
-        await handleEmailNotification(event, metadata.retryCount);
-        break;
-      default:
-        console.warn(`[Notifications Webhook] Unknown event type: ${event.eventType}`);
-        return NextResponse.json({ error: 'Unknown event type' }, { status: 400 });
+    // Process with deduplication
+    const { processed } = await processWithDeduplication(event.eventId, async () => {
+      // Route based on event type
+      switch (event.eventType) {
+        case 'notification.email':
+          await handleEmailNotification(event, metadata.retryCount);
+          break;
+        default:
+          console.warn(`[Notifications Webhook] Unknown event type: ${event.eventType}`);
+          throw new Error(`Unknown event type: ${event.eventType}`);
+      }
+    });
+
+    if (!processed) {
+      console.log(`[Notifications Webhook] Event ${event.eventId} was already processed (duplicate)`);
     }
 
     return NextResponse.json({
       success: true,
       eventId: event.eventId,
       eventType: event.eventType,
+      duplicate: !processed,
     });
   } catch (error) {
     console.error('[Notifications Webhook] Error processing event:', error);
